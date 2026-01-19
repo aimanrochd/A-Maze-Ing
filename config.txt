@@ -1,0 +1,53 @@
+# Maze configuration
+WIDTH=              20
+HEIGHT=15
+
+# Positions
+ENTRY=0,0
+EXIT=19,14
+
+#        Settings
+OUTPUT_FILE=maze.txt
+PERFECT=True
+SEED=42
+
+
+
+
+
+
+ALGORITHM=backtracker
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
