@@ -16,7 +16,7 @@ SEED=42
 
 
 
-ALGORITHM=backtracker
+ALGORITHM=kruskal
 
 
 
