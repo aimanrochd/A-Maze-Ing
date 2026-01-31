@@ -1,165 +1,190 @@
-from typing import List, Tuple, Any
-import random
+import curses
+import sys
+import time
+import ast
 
-# 1. Missing Cell Class
-class Cell:
-    def __init__(self, x, y):
-        self.x = x
-        self.y = y
-        self.north = True
-        self.east = True
-        self.south = True
-        self.west = True
-        # We need a helper flag to track if we've been here.
-        # You can add this to your class or use a separate "visited" matrix.
-        self.visited = False 
+TOP = 1
+RIGHT = 2
+BOTTOM = 4
+LEFT = 8
 
+# ================= FILE PARSER =================
 
-def imprint_42(grid: List[List[Cell]], width: int, height: int) -> None:
-    """
-    Marks cells in the shape of '42' as visited and ensures all walls are closed.
-    This forces the maze generator to work around them.
-    """
-    # 1. Safety Check: If maze is too small, skip it (Subject Requirement)
-    if width < 15 or height < 10:
-        print("Warning: Maze too small for '42' pattern.")
-        return
+def read_file(path):
+    with open(path, "r") as f:
+        lines = [l.strip() for l in f if l.strip()]
 
-    # 2. Calculate Center
-    cx, cy = width // 2, height // 2
+    maze_lines = []
+    i = 0
 
-    # 3. Define the shape relative to the center
-    # (x_offset, y_offset)
-    pattern_cells = [
-        # --- The Number 4 ---
-        (-5, -2), (-5, -1), (-5, 0),        # Left vertical bar
-        (-4, 0), (-3, 0),                   # Middle horizontal bar
-        (-2, -2), (-2, -1), (-2, 0), (-2, 1), (-2, 2), # Right vertical bar
-        
-        # --- The Number 2 ---
-        (1, -2), (2, -2), (3, -2), (4, -2), # Top bar
-        (4, -1),                            # Top-right corner
-        (1, 0), (2, 0), (3, 0), (4, 0),     # Middle bar
-        (1, 1),                             # Bottom-left corner
-        (1, 2), (2, 2), (3, 2), (4, 2)      # Bottom bar
-    ]
+    while i < len(lines) and all(c in "0123456789ABCDEFabcdef" for c in lines[i]):
+        maze_lines.append(lines[i])
+        i += 1
 
-    # 4. Apply the pattern
-    for dx, dy in pattern_cells:
-        px, py = cx + dx, cy + dy
-        
-        # Boundary check (just in case)
-        if 0 <= px < width and 0 <= py < height:
-            cell = grid[py][px]
-            
-            # LOCK THE CELL:
-            # 1. Close all walls (visually creates the block)
-            cell.north = True
-            cell.east = True
-            cell.south = True
-            cell.west = True
-            
-            # 2. Mark as visited (prevents algorithm from digging here)
-            cell.visited = True
+    maze = [[int(c, 16) for c in line] for line in maze_lines]
 
-def generate_backtracking_maze(width: int, height: int, seed: int = None) -> List[List[Cell]]:
-    if seed is not None:
-        random.seed(seed)
+    entry = ast.literal_eval(lines[i]); i += 1
+    exit_  = ast.literal_eval(lines[i]); i += 1
+    path = lines[i]
 
-    grid = []
-    for y in range(height):
-        row = []
-        for x in range(width):
-            new_cell = Cell(x, y)
-            row.append(new_cell)
-        grid.append(row)
-    
+    return maze, entry, exit_, path
 
-    start_x, start_y = 0, 0
-    current_cell = grid[start_y][start_x]
-    current_cell.visited = True
-    
-    stack = []
-    stack.append(current_cell)
+# ================= SAFE DRAW =================
 
-    while stack:
-        current_cell = stack[-1]
-        x, y = current_cell.x, current_cell.y
+def safe_addch(stdscr, y, x, ch):
+    H, W = stdscr.getmaxyx()
+    if 0 <= y < H and 0 <= x < W:
+        try:
+            stdscr.addch(y, x, ch)
+        except:
+            pass
 
-        neighbors = []
-        
-        if y > 0:
-            neighbor = grid[y - 1][x]
-            if not neighbor.visited:
-                neighbors.append(('N', neighbor))
-        
-        if y < height - 1:
-            neighbor = grid[y + 1][x]
-            if not neighbor.visited:
-                neighbors.append(('S', neighbor))
+# ================= WALL CHARS =================
 
-        if x < width - 1:
-            neighbor = grid[y][x + 1]
-            if not neighbor.visited:
-                neighbors.append(('E', neighbor))
+def wall_char(up, right, down, left):
+    mask = (up << 0) | (right << 1) | (down << 2) | (left << 3)
+    table = {
+        0b0000: " ",
+        0b0001: "╹",
+        0b0010: "╺",
+        0b0011: "┗",
+        0b0100: "╻",
+        0b0101: "┃",
+        0b0110: "┏",
+        0b0111: "┣",
+        0b1000: "╸",
+        0b1001: "┛",
+        0b1010: "━",
+        0b1011: "┻",
+        0b1100: "┓",
+        0b1101: "┫",
+        0b1110: "┳",
+        0b1111: "╋",
+    }
+    return table[mask]
 
-        if x > 0:
-            neighbor = grid[y][x - 1]
-            if not neighbor.visited:
-                neighbors.append(('W', neighbor))
+# ================= BUILD WALL GRID =================
 
-        if neighbors:
-            direction, next_cell = random.choice(neighbors)
+def build_wall_grid(maze):
+    h = len(maze)
+    w = len(maze[0])
 
-            if direction == 'N':
-                current_cell.north = False
-                next_cell.south = False
-            elif direction == 'S':
-                current_cell.south = False
-                next_cell.north = False
-            elif direction == 'E':
-                current_cell.east = False
-                next_cell.west = False
-            elif direction == 'W':
-                current_cell.west = False
-                next_cell.east = False
-            
-            next_cell.visited = True
-            stack.append(next_cell)
-        else:
-            stack.pop() # The BackTrack  When The neighbora liat is empty means there is no unvisited neighbors so Let's go back one step and check the previous cell
-            
+    screen_h = h * 2 + 1
+    screen_w = w * 2 + 1
+
+    grid = [[0 for _ in range(screen_w)] for _ in range(screen_h)]
+
+    for y in range(h):
+        for x in range(w):
+            cell = maze[y][x]
+            gy = y * 2
+            gx = x * 2
+
+            if cell & TOP:
+                grid[gy][gx] = grid[gy][gx+1] = grid[gy][gx+2] = 1
+            if cell & BOTTOM:
+                grid[gy+2][gx] = grid[gy+2][gx+1] = grid[gy+2][gx+2] = 1
+            if cell & LEFT:
+                grid[gy][gx] = grid[gy+1][gx] = grid[gy+2][gx] = 1
+            if cell & RIGHT:
+                grid[gy][gx+2] = grid[gy+1][gx+2] = grid[gy+2][gx+2] = 1
+
     return grid
 
-def cell_to_hex(cell: Any) -> str:
-    value = 0
-    if cell.north: value += 1
-    if cell.east: value += 2
-    if cell.south: value += 4
-    if cell.west: value += 8
-    return format(value, 'X')
+# ================= DRAW MAZE =================
 
-def write_hex_output(maze_grid, entry, exit, solution_path, output_file):
-    with open(output_file, "w") as f:
-        for row in maze_grid:
-            hex_row = ''
-            for cell in row:
-                hex_row += cell_to_hex(cell)
-            f.write(hex_row + '\n')
-        f.write('\n')
-        f.write(f"{entry[0]},{entry[1]}\n")
-        f.write(f"{exit[0]},{exit[1]}\n")
-        f.write(f"{solution_path}\n")
+def draw_maze(stdscr, grid):
+    H = len(grid)
+    W = len(grid[0])
+
+    for y in range(H):
+        for x in range(W):
+            if grid[y][x] == 0:
+                safe_addch(stdscr, y, x, " ")
+            else:
+                up = y > 0 and grid[y-1][x]
+                down = y < H-1 and grid[y+1][x]
+                left = x > 0 and grid[y][x-1]
+                right = x < W-1 and grid[y][x+1]
+                ch = wall_char(up, right, down, left)
+                safe_addch(stdscr, y, x, ch)
+
+# ================= ANIMATE PATH =================
+
+def animate_path(stdscr, grid, entry, exit_, path):
+    # entry and exit are (row, col)
+    sy = entry[0] * 2 + 1
+    sx = entry[1] * 2 + 1
+
+    ey = exit_[0] * 2 + 1
+    ex = exit_[1] * 2 + 1
+
+    # Draw S and E INSIDE maze
+    safe_addch(stdscr, sy, sx, "E")
+    safe_addch(stdscr, ey, ex, "X")
+    stdscr.refresh()
+
+    time.sleep(50)
+
+    DIR = {
+        "N": (-1, 0),
+        "S": (1, 0),
+        "E": (0, 1),
+        "W": (0, -1),
+    }
+
+    cy, cx = sy, sx
+
+    for move in path:
+        dy, dx = DIR[move]
+
+        # Each step is TWO moves (corridor + next cell)
+        for _ in range(2):
+            ny = cy + dy
+            nx = cx + dx
+
+            # Don't draw over walls
+            if grid[ny][nx] == 0:
+                cy, cx = ny, nx
+
+                if (cy, cx) != (ey, ex):
+                    safe_addch(stdscr, cy, cx, "█")
+
+                stdscr.refresh()
+                time.sleep(0.01)
+
+    # Redraw end
+    safe_addch(stdscr, ey, ex, "E")
+    stdscr.refresh()
+
+# ================= MAIN =================
+
+def main(stdscr):
+    curses.curs_set(0)
+    stdscr.clear()
+
+    if len(sys.argv) != 2:
+        stdscr.addstr(0, 0, "Usage: python3 maze.py file.txt")
+        stdscr.getch()
+        return
+
+    maze, entry, exit_, path = read_file(sys.argv[1])
+    grid = build_wall_grid(maze)
+
+    # Check terminal size
+    H, W = stdscr.getmaxyx()
+    if len(grid) > H or len(grid[0]) > W:
+        stdscr.clear()
+        stdscr.addstr(0, 0, "Terminal too small for this maze!")
+        stdscr.addstr(1, 0, f"Need: {len(grid)} x {len(grid[0])}")
+        stdscr.addstr(2, 0, f"Have: {H} x {W}")
+        stdscr.getch()
+        return
+
+    draw_maze(stdscr, grid)
+    animate_path(stdscr, grid, entry, exit_, path)
+
+    stdscr.getch()
 
 if __name__ == "__main__":
-    WIDTH = 100
-    HEIGHT = 100
-    FILENAME = "test_maze.txt"
-    
-    print(f"Generating {WIDTH}x{HEIGHT} maze...")
-    grid = generate_backtracking_maze(WIDTH, HEIGHT)
-    
-    write_hex_output(grid, (0,0), (WIDTH-1, HEIGHT-1), "NNSS", FILENAME)
-    
-    print(f"Saved to {FILENAME}")
-    print(f"Run this command to see it: python3 viz.py {FILENAME}")
+    curses.wrapper(main)
