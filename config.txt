@@ -1,53 +1,7 @@
-# Maze configuration
-WIDTH=              20
-HEIGHT=15
-
-# Positions
+WIDTH=20
+HEIGHT=20
 ENTRY=0,0
 EXIT=19,14
-
-#        Settings
 OUTPUT_FILE=maze.txt
 PERFECT=True
-SEED=42
-
-
-
-
-
-
-ALGORITHM=kruskal
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+ALGORITHM=recursive_backtracker

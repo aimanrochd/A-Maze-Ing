@@ -1,5 +1,5 @@
 from typing import List, Tuple, Any
-
+from mazgen.cell import Cell
 
 def binary_tree_maze(width: int, height: int,
                          seed: int = None) -> List[List[Cell]]:
