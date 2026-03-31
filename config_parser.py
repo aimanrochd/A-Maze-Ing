@@ -1,95 +1,239 @@
-from typing import Any
+import sys
+import os
+from typing import Any, Dict, Set, Tuple
 
 
-def parse_config(filepath: str) -> dict[str, Any]:
+def _convert_value(key: str, value: str, line_num: int) -> Any:
+    """
+    Convert a raw config value to the expected type for the given key.
 
-    config: dict[str, Any] = {}
-    with open(filepath, "r") as f:
+    Args:
+        key: Config key (uppercase).
+        value: Raw string value.
+        line_num: Line number (for error messages).
 
-        for line_num, line in enumerate(f, start=1):
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            if '=' not in line:
-                raise ValueError(f"Line {line_num}: Missing '=' separator")
-            key, value = line.split('=', 1)
-            key = key.strip()
-            value = value.strip()
-            if key in ['WIDTH', 'HEIGHT', 'SEED']:
-                try:
-                    config[key] = int(value)
-                except ValueError:
-                    raise ValueError(f"Line {line_num}: {key} must be an "
-                                     F"integer, got '{value}'")
-            elif key in ['ENTRY', 'EXIT']:
-                try:
-                    x_str, y_str = value.split(',')
-                    config[key] = (int(x_str.strip()), int(y_str.strip()))
-                except ValueError:
-                    raise ValueError(
-                        f"Line {line_num}: {key} must be in "
-                        F"format 'x,y', got '{value}'"
-                    )
-            elif key in ['OUTPUT_FILE', 'ALGORITHM', 'DISPLAY_MODE']:
-                config[key] = value
-            elif key == 'PERFECT':
-                config[key] = value.lower() in ['true', '1', 'yes']
-            else:
-                print(f"Warning: Unknown key '{key}' on line {line_num}")
-                config[key] = value
+    Returns:
+        Converted value (int, tuple, bool, or str).
+
+    Raises:
+        ValueError: If the value format/type is invalid for the key.
+    """
+    if key in {'WIDTH', 'HEIGHT', 'SEED'}:
+        if not value.isdigit():
+            raise ValueError(
+                f"Line {line_num}: {key} must be a non-negative integer."
+            )
+        return int(value)
+
+    elif key in {'ENTRY', 'EXIT'}:
+        try:
+            parts = value.split(',')
+            if len(parts) != 2:
+                raise ValueError
+            return (int(parts[0]), int(parts[1]))
+        except ValueError:
+            raise ValueError(
+                f"Line {line_num}: {key} must be 'x,y' integers."
+            )
+
+    elif key == 'PERFECT':
+        lower_value = value.lower()
+        if lower_value in {'true', '1', 'yes'}:
+            return True
+        elif lower_value in {'false', '0', 'no'}:
+            return False
+        else:
+            raise ValueError(
+                f"Line {line_num}: PERFECT must be boolean."
+            )
+
+    return value
+
+
+def _parse_line(
+    line: str,
+    line_num: int,
+    allowed: Set[str],
+    config: Dict[str, Any]
+) -> None:
+    """
+    Parse one config line and store the converted value into config.
+
+    Args:
+        line: Stripped non-empty, non-comment line.
+        line_num: Line number (for error messages).
+        allowed: Allowed keys (uppercase).
+        config: Output dictionary to fill.
+
+    Raises:
+        ValueError: If syntax is invalid, key is unknown/duplicate,
+        or value invalid.
+    """
+    if '=' not in line:
+        raise ValueError(
+            f"Line {line_num}: Missing '='. Expected KEY=VALUE"
+        )
+
+    raw_key, raw_value = [part.strip() for part in line.split('=', 1)]
+    key = raw_key.upper()
+
+    if not raw_key or not raw_value:
+        raise ValueError(f"Line {line_num}: Empty key or value.")
+    if key not in allowed:
+        raise ValueError(f"Line {line_num}: Unknown key '{key}'.")
+    if key in config:
+        raise ValueError(f"Line {line_num}: Duplicate key '{key}'.")
+
+    config[key] = _convert_value(key, raw_value, line_num)
+
+
+def parse_config(filepath: str) -> Dict[str, Any]:
+    """
+    Parse a config file into a dictionary.
+
+    Args:
+        filepath: Path to the config file.
+
+    Returns:
+        Parsed config dictionary.
+
+    Side Effects:
+        Prints an error to stderr and exits with code 1 on failure.
+    """
+    config: Dict[str, Any] = {}
+    allowed_keys: Set[str] = {
+        'WIDTH', 'HEIGHT', 'SEED', 'ENTRY', 'EXIT',
+        'OUTPUT_FILE', 'PERFECT', 'ALGORITHM'
+    }
+
+    try:
+        with open(filepath, "r") as file:
+            for line_num, line in enumerate(file, 1):
+                clean_line = line.strip()
+                if not clean_line or clean_line.startswith('#'):
+                    continue
+                _parse_line(clean_line, line_num, allowed_keys, config)
+
+    except (FileNotFoundError, PermissionError) as e:
+        print(f"File Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except ValueError as e:
+        print(f"Config Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
     return config
 
 
-def validate_config(config: dict[str, Any]) -> None:
+def _validate_bounds(width: int, height: int) -> None:
+    """
+    Validate WIDTH/HEIGHT bounds.
 
-    required_keys = ['WIDTH', 'HEIGHT', 'ENTRY', 'EXIT',
-                     'OUTPUT_FILE', 'PERFECT']
+    Args:
+        width: Maze width.
+        height: Maze height.
 
-    missing = []
-    for key in required_keys:
-        if key not in config:
-            missing.append(key)
+    Raises:
+        ValueError: If width/height are outside allowed ranges.
+    """
+    if width < 9 or width > 100:
+        raise ValueError(
+            f"WIDTH must be between 9 and 100 inclusive "
+            f"(9 ≤ WIDTH ≤ 100), got {width}"
+        )
+    if height < 7 or height > 100:
+        raise ValueError(
+            f"HEIGHT must be between 7 and 100 inclusive "
+            f"(7 ≤ HEIGHT ≤ 100), got {height}"
+        )
 
-    if missing:
-        raise ValueError(f"Missing required keys: {', '.join(missing)}")
-    if config['WIDTH'] <= 0:
-        raise ValueError(f"WIDTH must be greater than 0, "
-                         f"got {config['WIDTH']}")
 
-    if config['HEIGHT'] <= 0:
-        raise ValueError(f"HEIGHT must be greater than 0"
-                         f", got {config['HEIGHT']}")
+def _validate_entry_exit(
+    entry: Tuple[int, int],
+    exit_pos: Tuple[int, int],
+    width: int,
+    height: int
+) -> None:
+    """
+    Validate ENTRY/EXIT coordinates and ensure they are distinct.
 
-    entry_x, entry_y = config['ENTRY']
+    Args:
+        entry: Entry coordinates (x, y).
+        exit_pos: Exit coordinates (x, y).
+        width: Maze width.
+        height: Maze height.
 
-    if not (0 <= entry_x < config['WIDTH']):
-        raise ValueError(f"ENTRY x={entry_x} out of bounds (must "
-                         f"be 0-{config['WIDTH']-1})")
+    Raises:
+        ValueError: If out of bounds or entry equals exit.
+    """
+    for name, (x, y) in [('ENTRY', entry), ('EXIT', exit_pos)]:
+        if x < 0 or y < 0 or x >= width or y >= height:
+            raise ValueError(
+                f"{name} ({x},{y}) is outside bounds "
+                f"(0-{width-1}, 0-{height-1})"
+            )
 
-    if not (0 <= entry_y < config['HEIGHT']):
-        raise ValueError(f"ENTRY y={entry_y} out of bounds "
-                         f"(must be 0-{config['HEIGHT']-1})")
+    if entry == exit_pos:
+        raise ValueError("ENTRY and EXIT cannot be the same position.")
 
-    exit_x, exit_y = config['EXIT']
 
-    if not (0 <= exit_x < config['WIDTH']):
-        raise ValueError(f"EXIT x={exit_x} out of bounds "
-                         f"(must be 0-{config['WIDTH']-1})")
+def _validate_output_file(output_file: str, config_path: str) -> None:
+    """
+    Validate OUTPUT_FILE path safety.
 
-    if not (0 <= exit_y < config['HEIGHT']):
-        raise ValueError(f"EXIT y={exit_y} out of bounds "
-                         f"(must be 0-{config['HEIGHT']-1})")
+    Args:
+        output_file: Output path from config.
+        config_path: Config file path (prevent overwrite).
 
-    if config['ENTRY'] == config['EXIT']:
-        raise ValueError("ENTRY and EXIT cannot be at the same position")
+    Raises:
+        ValueError: If path is unsafe or overwrites config.
+    """
+    if '..' in output_file or os.path.isabs(output_file):
+        raise ValueError(
+            f"OUTPUT_FILE must be relative and safe: '{output_file}'"
+        )
 
-    if 'ALGORITHM' not in config:
-        config['ALGORITHM'] = "recursive_backtracker"
-    else:
-        valid_algos = ["prim's", "recursive_backtracker"]
-        if config['ALGORITHM'].lower() not in valid_algos:
-            raise ValueError(f"Unknown ALGORITHM: {config['ALGORITHM']}")
+    if os.path.abspath(output_file) == os.path.abspath(config_path):
+        raise ValueError(
+            "OUTPUT_FILE cannot be the same as the config file."
+        )
 
-    if 'DISPLAY_MODE' not in config:
-        config['DISPLAY_MODE'] = 'ascii'
+
+def validate_config(config: Dict[str, Any], config_path: str) -> None:
+    """
+    Validate required keys and normalize optional settings.
+
+    Args:
+        config: Parsed config dictionary (may be updated in-place).
+        config_path: Path to config file (prevent overwrite).
+
+    Side Effects:
+        Prints an error to stderr and exits with code 1 on validation failure.
+    """
+    try:
+        required_keys = {
+            'WIDTH', 'HEIGHT', 'ENTRY', 'EXIT', 'OUTPUT_FILE', 'PERFECT'
+        }
+
+        missing_keys = required_keys - config.keys()
+        if missing_keys:
+            raise ValueError(f"Missing keys: {', '.join(missing_keys)}")
+
+        _validate_bounds(config['WIDTH'], config['HEIGHT'])
+
+        _validate_entry_exit(
+            config['ENTRY'],
+            config['EXIT'],
+            config['WIDTH'],
+            config['HEIGHT']
+        )
+
+        _validate_output_file(config['OUTPUT_FILE'], config_path)
+
+        algo = config.setdefault('ALGORITHM', 'prims').lower()
+        if algo not in {'prims', 'recursive_backtracker'}:
+            raise ValueError(f"Unknown ALGORITHM: '{algo}'")
+        config['ALGORITHM'] = algo
+
+    except ValueError as e:
+        print(f"Validation Error: {e}", file=sys.stderr)
+        sys.exit(1)
