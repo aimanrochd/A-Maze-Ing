@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mazegen"
+version = "1.0.0"
+description = "A portable maze generator package"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name="Aiman Rochd" },
+  { name="Mohamed Zoubir" },
+]
+
+[project.optional-dependencies]
+dev = ["flake8", "mypy"]
